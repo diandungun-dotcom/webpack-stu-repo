@@ -1,0 +1,36 @@
+{
+  "compilerOptions": {
+    // ===== 输出目标 =====
+    // 因为我们用 Babel 真正做编译，TS 只负责类型检查，所以 target 设新一点没关系
+    "target": "ESNext",
+    // 用 ESM 模块语法（import/export），保留交给 Babel/webpack 处理
+    "module": "ESNext",
+    // 模块解析方式按 Node 来（识别 node_modules、index.js 等）
+    "moduleResolution": "node",
+
+    // ===== JSX =====
+    // react-jsx = React 17+ 新版 JSX transform（与 babel preset-react 的 automatic 对齐）
+    "jsx": "react-jsx",
+
+    // ===== 类型检查严格度 =====
+    "strict": true,                 // 总开关，开启全部严格检查
+    "noImplicitAny": true,
+    "strictNullChecks": true,
+
+    // ===== 互操作性 =====
+    "esModuleInterop": true,        // 允许 `import React from 'react'`（兼容 CJS）
+    "allowSyntheticDefaultImports": true,
+    "forceConsistentCasingInFileNames": true,  // 路径大小写严格（防止 mac 不区分大小写带来的坑）
+
+    // ===== 其他 =====
+    "skipLibCheck": true,           // 跳过 node_modules 里的 .d.ts 检查，构建快很多
+    "resolveJsonModule": true,      // 允许 import xxx from './data.json'
+    "isolatedModules": true,        // 强制每个文件能单独编译（Babel 是按文件编译，必须开）
+    "noEmit": true,                 // ❗ 不让 TS 输出文件，编译交给 Babel；TS 只检查类型
+
+    // ===== 类型库 =====
+    "lib": ["DOM", "DOM.Iterable", "ESNext"]
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist"]
+}
