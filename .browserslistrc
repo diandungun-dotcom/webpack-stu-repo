@@ -1,0 +1,14 @@
+# 目标浏览器列表
+# 这个文件被 Babel preset-env、autoprefixer、postcss-preset-env 等工具共享读取
+# 根据 process.env.NODE_ENV 选择对应配置块
+# 可用 `npx browserslist` 查看当前命中的浏览器列表
+
+[production]
+> 0.2%
+not dead
+not op_mini all
+
+[development]
+last 1 chrome version
+last 1 firefox version
+last 1 safari version

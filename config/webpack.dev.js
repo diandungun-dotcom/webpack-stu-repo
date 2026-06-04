@@ -65,15 +65,39 @@ module.exports = merge(common, {
 
     // 代理：把指定路径的请求转发到目标服务，解决前后端跨域
     // 示例：所有 /api 开头的请求转发到 http://localhost:3000
-    // 用法：fetch('/api/users') → 实际访问 http://localhost:3000/api/users
     proxy: [
       {
         context: ['/api'],
         target: 'http://localhost:3000',
-        changeOrigin: true, // 修改 Host 头为 target 的 Host
-        // pathRewrite: { '^/api': '' }, // 如果后端不需要 /api 前缀，可以重写
-        // secure: false,                // target 是 https 且证书无效时，要关
+        changeOrigin: true,
+        // pathRewrite: { '^/api': '' },
+        // secure: false,
       },
     ],
+
+    // ===== setupMiddlewares：自定义 Express 中间件 =====
+    // 用途：本地 mock 接口、注入特殊路由、添加自定义中间件等
+    // 注意：注册在 proxy 之前生效（因为 setupMiddlewares 默认走最前）
+    //      所以如果同时配了 proxy 和 mock，mock 会优先命中
+    setupMiddlewares: (middlewares, devServer) => {
+      // 示例 1：mock 一个 GET 接口
+      devServer.app.get('/mock/user', (req, res) => {
+        res.json({ code: 0, data: { id: 1, name: '张三', role: 'admin' } });
+      });
+
+      // 示例 2：mock 一个 POST 接口
+      devServer.app.post('/mock/login', (req, res) => {
+        res.json({ token: 'fake-token-' + Date.now() });
+      });
+
+      // 示例 3：模拟延迟，测 loading 状态
+      devServer.app.get('/mock/slow', (req, res) => {
+        setTimeout(() => {
+          res.json({ data: 'slow response' });
+        }, 2000);
+      });
+
+      return middlewares;
+    },
   },
 });
