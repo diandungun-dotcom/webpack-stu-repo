@@ -1,0 +1,161 @@
+# .github/workflows/ci.yml
+# 基础 CI：每次 push / PR 自动跑质量检查 + 构建
+#
+# 文件名随意，但放在 .github/workflows/ 下才会被 GitHub 识别
+# 一个 repo 可以有多个 workflow 文件（彼此独立）
+
+name: CI
+
+# ===== 触发条件 =====
+# 设计原则：
+#   push 只跑 main → 兜底确认 main 永远绿
+#   pull_request 跑所有目标 main 的 PR → 合并门禁，CI 不过不让 merge
+#   不再让 push feat/** 也触发：避免开发分支 + PR 双跑浪费资源
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+    types: [opened, synchronize, reopened]  # PR 创建/更新/重开都触发
+  # workflow_dispatch：允许在 GitHub UI 上手动触发
+  # 加一个 debug 输入，手动选 true 时会在失败后开 tmate ssh 隧道
+  workflow_dispatch:
+    inputs:
+      debug_ssh:
+        description: '失败时开启 tmate SSH 调试'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+
+# ===== 并发控制 =====
+# 同一 PR / 分支连续 push 多次时，自动取消前面"还没跑完"的 workflow
+# 比如开发者改完一处又改一处快速 push 两次，第一次的就被取消，省钱省时间
+# group：每个 PR / 分支独立一组
+# cancel-in-progress: true → 取消组内正在跑的
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# ===== 任务列表 =====
+jobs:
+  # job ID 自定义，下游 needs 引用要用它
+  quality-check:
+    # name 字段会显示在 GitHub Actions 列表里，带上 node 版本一眼能看出哪个版本挂了
+    name: 质量检查 (Node ${{ matrix.node }})
+
+    # 在 GitHub 提供的 Ubuntu 虚拟机上跑（免费）
+    runs-on: ubuntu-latest
+
+    # job 总超时 15 分钟（默认 360 分钟太长，卡死要等 6 小时）
+    timeout-minutes: 15
+
+    # ===== 矩阵构建 =====
+    # matrix 会自动把这个 job 展开成多个并行 job，每个用不同的变量值
+    # 这里：node 18/20/22 三个版本并行跑同一套检查
+    #
+    # fail-fast: false → 任一失败，其他继续跑完，方便看全貌
+    # fail-fast: true（默认）→ 一个挂了全部取消，节省资源但定位慢
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20]
+
+    # CI 环境变量：跳过 husky 安装（npm install 会触发 prepare，CI 上不需要 hooks）
+    env:
+      HUSKY: 0
+
+    # 每一步都按顺序执行
+    steps:
+      # 1) 拉代码：actions/checkout 是官方 action，几乎所有 workflow 都要第一步执行
+      #    @v4 指定大版本，避免未来某次升级破坏 workflow
+      - name: 拉取代码
+        uses: actions/checkout@v4
+
+      # 2) 安装 pnpm【顺序重要：必须在 setup-node 之前，否则 setup-node 的 cache: 'pnpm' 找不到 pnpm】
+      #    packageManager 字段锁定了版本，action 会自动读取
+      - name: 安装 pnpm
+        uses: pnpm/action-setup@v4
+
+      # 3) 安装 Node + 启用 pnpm 内置缓存
+      #    cache: 'pnpm' 会缓存 ~/.local/share/pnpm/store，key 自动用 hashFiles(pnpm-lock.yaml)
+      - name: 安装 Node.js ${{ matrix.node }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: 'pnpm'
+
+      # 4) 安装依赖 —— pnpm install 没有 npm 的 hang bug
+      #    --frozen-lockfile：严格按 pnpm-lock.yaml 装，lock 和 package.json 不一致就报错
+      #    类似 npm ci 的作用，保证可重现
+      - name: 安装依赖
+        timeout-minutes: 5
+        run: pnpm install --frozen-lockfile
+
+      # 兜底验证：shamefully-hoist 后 .bin 会有主要工具
+      - name: 验证依赖已安装
+        run: |
+          set -e
+          test -d node_modules || { echo "::error::node_modules 不存在、安装失败"; exit 1; }
+          test -x node_modules/.bin/eslint || { echo "::error::eslint 未装好"; exit 1; }
+          test -x node_modules/.bin/webpack || { echo "::error::webpack 未装好"; exit 1; }
+          echo "✅ 依赖完整"
+          pnpm -v && node -v
+
+      # 上传 pnpm debug log（成功失败都传、方便事后对比分析）
+      # if: always() = 不管前面成功失败/取消，这步都跑
+      # 区分 matrix 用 ${{ matrix.node }} 给 artifact 加版本后缀，避免覆盖
+      - name: 上传依赖日志（debug 用）
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: install-logs-node${{ matrix.node }}
+          path: |
+            ~/.npm/_logs/
+            ~/.local/share/pnpm/.pnpm-debug.log
+            **/pnpm-debug.log*
+            **/npm-debug.log*
+          if-no-files-found: ignore
+
+      # 失败时把 debug log 直接 cat 到 stdout，省去下载 artifact 的步骤
+      # tail -200 防止日志几万行刷屏
+      - name: 失败时打印依赖日志
+        if: failure()
+        run: |
+          echo "::group::📋 install debug log"
+          for d in ~/.npm/_logs ~/.local/share/pnpm; do
+            if ls $d/*.log 1>/dev/null 2>&1; then
+              for f in $d/*.log; do
+                echo "----- $f (tail 200 lines) -----"
+                tail -200 "$f"
+              done
+            fi
+          done
+          echo "::endgroup::"
+
+      # 失败时开 tmate ssh 调试隧道（仅在手动触发并选了 debug_ssh=true 时启用）
+      # 触发后 Actions 日志里会打印 ssh 地址，本地 ssh 进去直接 debug
+      # 30 分钟自动关闭，省得忘了关
+      - name: 失败时开启 SSH 调试隧道
+        if: failure() && github.event_name == 'workflow_dispatch' && inputs.debug_ssh == 'true'
+        uses: mxschmitt/action-tmate@v3
+        timeout-minutes: 30
+        with:
+          limit-access-to-actor: true  # 只允许触发 workflow 的 GitHub 账号 SSH 登入
+
+      # 5) 代码风格检查
+      - name: ESLint
+        run: pnpm run lint
+
+      # 6) 类型检查
+      - name: TypeScript
+        run: pnpm run typecheck
+
+      # 7) 生产构建
+      #    任何一步失败，后续就不会执行（fail-fast）
+      - name: 构建
+        run: pnpm run build
