@@ -1,0 +1,60 @@
+# .github/workflows/ci.yml
+# 基础 CI：每次 push / PR 自动跑质量检查 + 构建
+#
+# 文件名随意，但放在 .github/workflows/ 下才会被 GitHub 识别
+# 一个 repo 可以有多个 workflow 文件（彼此独立）
+
+name: CI
+
+# ===== 触发条件 =====
+# push：推送到指定分支时
+# pull_request：有 PR 创建/更新且 target 这些分支时
+on:
+  push:
+    branches:
+      - main
+      - 'feat/**'  # 通配：feat/ci-cd、feat/anything 都触发
+  pull_request:
+    branches:
+      - main
+
+# ===== 任务列表 =====
+jobs:
+  # job ID 自定义，下游 needs 引用要用它
+  quality-check:
+    # 在 GitHub 提供的 Ubuntu 虚拟机上跑（免费）
+    runs-on: ubuntu-latest
+
+    # 每一步都按顺序执行
+    steps:
+      # 1) 拉代码：actions/checkout 是官方 action，几乎所有 workflow 都要第一步执行
+      #    @v4 指定大版本，避免未来某次升级破坏 workflow
+      - name: 拉取代码
+        uses: actions/checkout@v4
+
+      # 2) 安装 Node：actions/setup-node 帮你装好 Node 并加到 PATH
+      - name: 安装 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'  # 指定版本，CI 必须固定，避免"今天能跑明天不能跑"
+
+      # 3) 安装依赖
+      #    用 `npm ci`（clean install）而不是 `npm install`：
+      #      - 严格按 package-lock.json 装，可重现
+      #      - 跳过依赖树解析，更快
+      #      - 装之前会先删 node_modules，干净
+      - name: 安装依赖
+        run: npm ci
+
+      # 4) 代码风格检查
+      - name: ESLint
+        run: npm run lint
+
+      # 5) 类型检查
+      - name: TypeScript
+        run: npm run typecheck
+
+      # 6) 生产构建
+      #    任何一步失败，后续就不会执行（fail-fast）
+      - name: 构建
+        run: npm run build
