@@ -5,8 +5,9 @@
     "target": "ESNext",
     // 用 ESM 模块语法（import/export），保留交给 Babel/webpack 处理
     "module": "ESNext",
-    // 模块解析方式按 Node 来（识别 node_modules、index.js 等）
-    "moduleResolution": "node",
+    // bundler：TS 5+ 推荐的解析模式，专门为 webpack/vite 这类打包器设计
+    // 比 'node' 更宽松，原生支持 paths、不强制 .js 后缀
+    "moduleResolution": "bundler",
 
     // ===== JSX =====
     // react-jsx = React 17+ 新版 JSX transform（与 babel preset-react 的 automatic 对齐）
@@ -29,7 +30,16 @@
     "noEmit": true,                 // ❗ 不让 TS 输出文件，编译交给 Babel；TS 只检查类型
 
     // ===== 类型库 =====
-    "lib": ["DOM", "DOM.Iterable", "ESNext"]
+    "lib": ["DOM", "DOM.Iterable", "ESNext"],
+    // 显式声明需要的 @types/* 包（不写则自动包含所有 node_modules/@types/*）
+    // 这里需要 node 是为了让源码里的 process.env 有类型
+    "types": ["node"],
+
+    // ===== 路径别名（必须和 webpack.alias 保持一致）=====
+    // bundler 模式下 paths 相对于 tsconfig.json 所在目录解析，不再需要 baseUrl
+    "paths": {
+      "@/*": ["./src/*"]
+    }
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist"]

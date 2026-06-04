@@ -21,25 +21,19 @@ const App: React.FC = () => {
         <NavLink
           to="/"
           end
-          className={({ isActive }) =>
-            isActive ? `${styles.link} ${styles.active}` : styles.link
-          }
+          className={({ isActive }) => (isActive ? `${styles.link} ${styles.active}` : styles.link)}
         >
           首页
         </NavLink>
         <NavLink
           to="/about"
-          className={({ isActive }) =>
-            isActive ? `${styles.link} ${styles.active}` : styles.link
-          }
+          className={({ isActive }) => (isActive ? `${styles.link} ${styles.active}` : styles.link)}
         >
           关于
         </NavLink>
         <NavLink
           to="/dashboard"
-          className={({ isActive }) =>
-            isActive ? `${styles.link} ${styles.active}` : styles.link
-          }
+          className={({ isActive }) => (isActive ? `${styles.link} ${styles.active}` : styles.link)}
         >
           仪表盘
         </NavLink>
@@ -51,9 +45,7 @@ const App: React.FC = () => {
         每次路由切换到新页面（chunk 未加载），都会先短暂显示 fallback
       */}
       <main className={styles.main}>
-        <Suspense fallback={<div className={styles.loading}>页面加载中…</div>}>
-          {element}
-        </Suspense>
+        <Suspense fallback={<div className={styles.loading}>页面加载中…</div>}>{element}</Suspense>
       </main>
     </div>
   );

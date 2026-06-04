@@ -1,10 +1,43 @@
 // webpack.common.js
 // 开发和生产环境共享的配置：entry / output / loader / resolve / 共有 plugin
 const path = require('path');
+const webpack = require('webpack');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
+const ForkTsCheckerWebpackPlugin = require('fork-ts-checker-webpack-plugin');
+const dotenv = require('dotenv');
 
-// 把项目根目录抽出来，避免到处写 ../../
 const ROOT = path.resolve(__dirname, '..');
+
+// ===== 加载 .env 文件 =====
+// 优先读 .env.{NODE_ENV}，再读 .env（前者覆盖后者）
+const NODE_ENV = process.env.NODE_ENV || 'development';
+const envFiles = [
+  path.resolve(ROOT, `.env.${NODE_ENV}.local`), // 本地覆盖（不入 git）
+  path.resolve(ROOT, `.env.${NODE_ENV}`),       // 按环境
+  path.resolve(ROOT, '.env.local'),              // 全局本地覆盖
+  path.resolve(ROOT, '.env'),                    // 兜底
+];
+
+const envVars = {};
+envFiles.forEach((file) => {
+  try {
+    const parsed = dotenv.parse(require('fs').readFileSync(file));
+    Object.entries(parsed).forEach(([k, v]) => {
+      // 只允许 APP_ 开头的变量暴露到客户端（防止泄露敏感信息）
+      if (k.startsWith('APP_') && envVars[k] === undefined) {
+        envVars[k] = v;
+      }
+    });
+  } catch (e) {
+    // 文件不存在，忽略
+  }
+});
+
+// 把 envVars 转成 DefinePlugin 需要的格式：process.env.XXX → JSON 字符串
+const definedEnv = Object.entries(envVars).reduce((acc, [k, v]) => {
+  acc[`process.env.${k}`] = JSON.stringify(v);
+  return acc;
+}, {});
 
 module.exports = {
   entry: path.resolve(ROOT, 'src/index.tsx'),
@@ -19,7 +52,11 @@ module.exports = {
 
   resolve: {
     extensions: ['.js', '.jsx', '.ts', '.tsx'],
-    // 后面可以加 alias，比如 '@': path.resolve(ROOT, 'src')
+    // 路径别名：业务代码里写 '@/utils/x' 等价于 'src/utils/x'
+    // 好处：告别 '../../../../utils/x'；重构文件位置时引用方不用改
+    alias: {
+      '@': path.resolve(ROOT, 'src'),
+    },
   },
 
   module: {
@@ -91,6 +128,23 @@ module.exports = {
     new HtmlWebpackPlugin({
       template: path.resolve(ROOT, 'public/index.html'),
       filename: 'index.html',
+    }),
+
+    // 注入环境变量到客户端代码：
+    //   源码里写 process.env.APP_API_BASE
+    //   编译后被替换为 "http://localhost:3000/api" 这样的字符串字面量
+    // 注意 JSON.stringify 是必须的，否则替换后变成裸标识符会报错
+    new webpack.DefinePlugin(definedEnv),
+
+    // 类型检查独立进程：webpack 不等它，构建速度不受影响
+    // 类型错误会在终端 / 浏览器 overlay 里显示
+    new ForkTsCheckerWebpackPlugin({
+      typescript: {
+        // 与 tsconfig.json 对齐
+        configFile: path.resolve(ROOT, 'tsconfig.json'),
+        // diagnosticOptions 控制检查范围
+        diagnosticOptions: { syntactic: true, semantic: true },
+      },
     }),
   ],
 };

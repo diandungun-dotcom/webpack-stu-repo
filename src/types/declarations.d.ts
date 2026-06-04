@@ -42,9 +42,7 @@ declare module '*.webp' {
 // 默认导出：React 组件（由 @svgr/webpack 提供）
 declare module '*.svg' {
   import * as React from 'react';
-  const Component: React.FunctionComponent<
-    React.SVGProps<SVGSVGElement> & { title?: string }
-  >;
+  const Component: React.FunctionComponent<React.SVGProps<SVGSVGElement> & { title?: string }>;
   export default Component;
 }
 
@@ -52,4 +50,16 @@ declare module '*.svg' {
 declare module '*.svg?url' {
   const src: string;
   export default src;
+}
+
+// ===== 客户端 process.env 类型补充 =====
+// DefinePlugin 注入的变量在源码里被替换为字符串字面量
+// 这里给 TS 提示，避免访问时报"属性不存在"
+declare namespace NodeJS {
+  interface ProcessEnv {
+    NODE_ENV: 'development' | 'production' | 'test';
+    APP_API_BASE: string;
+    APP_ENV: string;
+    APP_LOG_LEVEL: 'debug' | 'info' | 'warn' | 'error';
+  }
 }
