@@ -22,8 +22,29 @@ on:
 jobs:
   # job ID 自定义，下游 needs 引用要用它
   quality-check:
+    # name 字段会显示在 GitHub Actions 列表里，带上 node 版本一眼能看出哪个版本挂了
+    name: 质量检查 (Node ${{ matrix.node }})
+
     # 在 GitHub 提供的 Ubuntu 虚拟机上跑（免费）
     runs-on: ubuntu-latest
+
+    # job 总超时 15 分钟（默认 360 分钟太长，卡死要等 6 小时）
+    timeout-minutes: 15
+
+    # ===== 矩阵构建 =====
+    # matrix 会自动把这个 job 展开成多个并行 job，每个用不同的变量值
+    # 这里：node 18/20/22 三个版本并行跑同一套检查
+    #
+    # fail-fast: false → 任一失败，其他继续跑完，方便看全貌
+    # fail-fast: true（默认）→ 一个挂了全部取消，节省资源但定位慢
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [18, 20, 22]
+
+    # CI 环境变量：跳过 husky 安装（npm install 会触发 prepare，CI 上不需要 hooks）
+    env:
+      HUSKY: 0
 
     # 每一步都按顺序执行
     steps:
@@ -37,55 +58,30 @@ jobs:
       #      key 由 hashFiles('package-lock.json') 自动计算
       #      lock 文件不变 → 缓存命中 → 跳过几乎所有下载，install 从 60s → 10s
       #      lock 文件变了 → 自动重算 key → 重新下载 + 重新写缓存
-      - name: 安装 Node.js
+      - name: 安装 Node.js ${{ matrix.node }}
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: ${{ matrix.node }}
           cache: 'npm'
 
       # 3) 安装依赖
-      #    `npm ci`（clean install）：严格按 package-lock.json 装，干净、可重现
-      #    legacy-peer-deps 已在 .npmrc 里配置，不再走 CLI flag（避免 npm 10 偶发的
-      #    "Exit handler never called!" 崩溃 bug）
-      #
-      #    set -euo pipefail：
-      #      -e 命令失败即退出；-u 引用未定义变量即退出；-o pipefail 管道任一失败即整体失败
-      #      防御 npm 自身 exit 0 但实际崩了的情况
-      #    重试 3 次：CI 上偶发网络抖动是家常便饭，retry 是必备
+      #    用 `npm ci`：严格按 lock 装，可重现，CI 必备
+      #    legacy-peer-deps / fetch-retries 都已在 .npmrc 里配置
+      #    timeout-minutes: 5 是关键 —— 5 分钟装不完直接挂，再也不卡死
+      #    （上次卡死就是因为没设 timeout，叠加 npm 的 keepalive bug）
       - name: 安装依赖
-        run: |
-          set -euo pipefail
-          for i in 1 2 3; do
-            echo "[install] attempt $i"
-            if npm ci --no-audit --no-fund; then
-              echo "[install] success"
-              break
-            fi
-            echo "[install] failed, retrying..."
-            rm -rf node_modules
-            sleep 5
-            if [ "$i" = "3" ]; then
-              echo "[install] all 3 attempts failed"
-              exit 1
-            fi
-          done
+        timeout-minutes: 5
+        run: npm ci
 
-      # 诊断：兜底验证 node_modules 真的装上了
-      # 如果这一步失败，说明上一步是"假成功"，立刻中断 CI 避免误导
+      # 兜底验证：防御 npm "假成功"（Exit handler never called! bug）
+      # 显式断言 node_modules 和关键 .bin 工具真的在
       - name: 验证依赖已安装
         run: |
           set -e
-          if [ ! -d node_modules ]; then
-            echo "::error::node_modules 不存在，安装实际上失败了"
-            exit 1
-          fi
-          if [ ! -x node_modules/.bin/eslint ]; then
-            echo "::error::eslint 未被链入 .bin，安装不完整"
-            ls -la node_modules/.bin/ | head -30
-            exit 1
-          fi
+          test -d node_modules || { echo "::error::node_modules 不存在，安装失败"; exit 1; }
+          test -x node_modules/.bin/eslint || { echo "::error::eslint 未装好"; exit 1; }
+          test -x node_modules/.bin/webpack || { echo "::error::webpack 未装好"; exit 1; }
           echo "✅ 依赖完整"
-          ls -la node_modules/.bin/ | grep -E 'eslint|prettier|webpack|tsc'
 
       # 失败时把 npm debug log 当 artifact 上传，方便事后排查
       - name: 失败时上传 npm 日志
