@@ -1,0 +1,74 @@
+# .github/workflows/pr-checks.yml
+# PR 专用工作流：
+#   1) 自动给 PR 评论"构建结果汇总"
+#   2) 给 PR 打 size 标签（小改动/大改动）
+#   3) 一个汇总 job，用于在 GitHub 分支保护里指定"必须过的检查"
+
+name: PR Checks
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+# 同 PR 多次 push 时取消旧的
+concurrency:
+  group: pr-checks-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  # ===== job 1: 给 PR 自动打 size 标签 =====
+  # 根据改动行数自动加 label：XS / S / M / L / XL
+  # 一眼就能看出"这 PR 值不值得花时间 review"
+  pr-size-label:
+    name: 自动标注 PR 大小
+    runs-on: ubuntu-latest
+    # 跳过 draft PR（草稿不打扰）
+    if: github.event.pull_request.draft == false
+    permissions:
+      pull-requests: write  # 需要给 PR 加 label 的权限
+    steps:
+      - uses: codelytv/pr-size-labeler@v1
+        with:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 阈值：行数 + 文件数都算
+          xs_label: 'size/XS'
+          xs_max_size: '10'
+          s_label: 'size/S'
+          s_max_size: '100'
+          m_label: 'size/M'
+          m_max_size: '500'
+          l_label: 'size/L'
+          l_max_size: '1000'
+          xl_label: 'size/XL'
+
+  # ===== job 2: 标题规范检查 =====
+  # 强制 PR 标题符合 conventional commits 格式：
+  #   feat: xxx | fix: xxx | docs: xxx | chore: xxx ...
+  # 利于自动生成 changelog
+  pr-title-check:
+    name: 校验 PR 标题
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft == false
+    steps:
+      - uses: amannn/action-semantic-pull-request@v5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          types: |
+            feat
+            fix
+            docs
+            style
+            refactor
+            perf
+            test
+            build
+            ci
+            chore
+            revert
+          requireScope: false
+          subjectPattern: ^(?![A-Z]).+$
+          subjectPatternError: |
+            PR 标题主语不能以大写字母开头，例如：
+              ✅ feat: add login page
+              ❌ feat: Add login page
