@@ -198,4 +198,43 @@ jobs:
 - `package.json`：`lint-staged` 配置 + `"prepare": "husky"`
 - `.github/workflows/ci.yml`：加入缓存、超时、断言、日志上传
 
+---
+
+## 八、补遗：手写 npm ci 还是失败 → 用社区 action 兜底
+
+加了 `.npmrc` + `timeout-minutes` + `set -e` + 兜底验证之后，CI 上 npm ci 还是
+偶发卡 5 分钟后被 `timeout-minutes` 切断，报 "The operation was canceled"。
+
+### 根因
+**GitHub runner 上 npm 进程偶发挂起是 known issue**：
+- `actions/runner-images#6698` "ubuntu-latest causes Node.js process to hang indefinitely"
+- `actions/runner-images#3737` "Actions fail intermittently due to NPM ECONNRESET"
+
+npm 拉某个 tarball 时 socket keep-alive 不返回，自身 fetch-timeout 救不回来。
+我们手写 `bash for` 重试也救不了 —— bash **杀不掉挂起的子进程**。
+
+### 解决：换社区 action
+```yaml
+- name: 安装依赖
+  timeout-minutes: 8
+  uses: bahmutov/npm-install@v1
+  with:
+    useLockFile: true   # 走 npm ci
+```
+
+bahmutov/npm-install 做了什么：
+1. 自动 actions/cache 缓存 `node_modules`（key = hashFiles(lock)）
+2. 缓存命中：直接复用，秒过
+3. 缓存未命中：跑 npm ci，失败自动重试
+4. **内部处理进程超时和强杀**，比 bash for 可靠
+
+⚠️ 用了 bahmutov 之后，setup-node 的 `cache: 'npm'` 要**删掉**，否则两个缓存机制
+冲突会乱。
+
+### 重要教训
+**CI 上能用社区 action 就别手写 bash**。理由：
+- 边界情况别人处理过了
+- 维护成本为零
+- 出问题搜得到答案
+
 下一步：**Step CI-3 矩阵构建**（同时在 Node 18/20/22 上跑，确保兼容性）。
