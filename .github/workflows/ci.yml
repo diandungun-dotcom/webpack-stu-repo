@@ -45,14 +45,56 @@ jobs:
 
       # 3) 安装依赖
       #    `npm ci`（clean install）：严格按 package-lock.json 装，干净、可重现
-      #    --legacy-peer-deps：宽容 peer dep 冲突（项目里 eslint v9 + 某些 plugin
-      #    peer 声明严格时会让 npm ci 失败，这是 CI 上 eslint not found 的根因）
+      #    legacy-peer-deps 已在 .npmrc 里配置，不再走 CLI flag（避免 npm 10 偶发的
+      #    "Exit handler never called!" 崩溃 bug）
+      #
+      #    set -euo pipefail：
+      #      -e 命令失败即退出；-u 引用未定义变量即退出；-o pipefail 管道任一失败即整体失败
+      #      防御 npm 自身 exit 0 但实际崩了的情况
+      #    重试 3 次：CI 上偶发网络抖动是家常便饭，retry 是必备
       - name: 安装依赖
-        run: npm ci --legacy-peer-deps
+        run: |
+          set -euo pipefail
+          for i in 1 2 3; do
+            echo "[install] attempt $i"
+            if npm ci --no-audit --no-fund; then
+              echo "[install] success"
+              break
+            fi
+            echo "[install] failed, retrying..."
+            rm -rf node_modules
+            sleep 5
+            if [ "$i" = "3" ]; then
+              echo "[install] all 3 attempts failed"
+              exit 1
+            fi
+          done
 
-      # 诊断：确认 eslint 真的被装到了 .bin（CI 调试常用技巧）
-      - name: 诊断 - 列出 .bin 中关键工具
-        run: ls -la node_modules/.bin/ | grep -E 'eslint|prettier|webpack|tsc' || true
+      # 诊断：兜底验证 node_modules 真的装上了
+      # 如果这一步失败，说明上一步是"假成功"，立刻中断 CI 避免误导
+      - name: 验证依赖已安装
+        run: |
+          set -e
+          if [ ! -d node_modules ]; then
+            echo "::error::node_modules 不存在，安装实际上失败了"
+            exit 1
+          fi
+          if [ ! -x node_modules/.bin/eslint ]; then
+            echo "::error::eslint 未被链入 .bin，安装不完整"
+            ls -la node_modules/.bin/ | head -30
+            exit 1
+          fi
+          echo "✅ 依赖完整"
+          ls -la node_modules/.bin/ | grep -E 'eslint|prettier|webpack|tsc'
+
+      # 失败时把 npm debug log 当 artifact 上传，方便事后排查
+      - name: 失败时上传 npm 日志
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-debug-log
+          path: ~/.npm/_logs/
+          if-no-files-found: ignore
 
       # 4) 代码风格检查
       - name: ESLint
