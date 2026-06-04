@@ -19,6 +19,16 @@ const envFiles = [
 ];
 
 const envVars = {};
+
+// 1) 先合并 process.env 里 APP_ 开头的运行时变量（优先级最高）
+//    这样 CI 通过 env: 注入的 APP_BASENAME 等才能被 webpack 读到
+Object.entries(process.env).forEach(([k, v]) => {
+  if (k.startsWith('APP_') && v !== undefined) {
+    envVars[k] = v;
+  }
+});
+
+// 2) 再合并 .env 文件里的变量（不覆盖已存在的，process.env 优先）
 envFiles.forEach((file) => {
   try {
     const parsed = dotenv.parse(require('fs').readFileSync(file));
@@ -38,6 +48,11 @@ const definedEnv = Object.entries(envVars).reduce((acc, [k, v]) => {
   acc[`process.env.${k}`] = JSON.stringify(v);
   return acc;
 }, {});
+
+// 启动时打印一下，方便确认（CI 日志里能看到注入了啥）
+if (Object.keys(definedEnv).length > 0) {
+  console.log('[webpack] injected env vars:', Object.keys(definedEnv).join(', '));
+}
 
 module.exports = {
   entry: path.resolve(ROOT, 'src/index.tsx'),
