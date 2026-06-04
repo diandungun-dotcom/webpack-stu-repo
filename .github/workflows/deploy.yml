@@ -1,0 +1,96 @@
+# .github/workflows/deploy.yml
+# 部署到 GitHub Pages
+# 仅在 main 分支 push 时触发，PR 不部署（避免每个 PR 都覆盖线上）
+
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  # 允许手动触发（方便回滚验证 / 应急重新部署）
+  workflow_dispatch:
+
+# ===== 关键权限 =====
+# pages: write     部署 Pages 的写权限
+# id-token: write  OIDC 临时身份令牌（无需长期 secret，更安全）
+# contents: read   读源码
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# ===== 并发控制 =====
+# ⚠️ 部署的 concurrency 跟 CI 不一样：cancel-in-progress: false
+# 原因：部署到一半被取消会留下"半完成"状态（CDN 上传一半，用户看到 404）
+# 标准做法：build 阶段可以 cancel，deploy 必须跑完
+concurrency:
+  group: pages-deploy
+  cancel-in-progress: false
+
+jobs:
+  # ===== job 1: build =====
+  # 跟 CI 的 build 解耦：deploy workflow 自己构建一遍，保证可独立 rerun
+  # 也避免跨 workflow 传 artifact 的复杂度
+  build:
+    name: 构建生产包
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      HUSKY: 0
+      # GitHub Pages 部署到 https://<user>.github.io/<repo>/，资源前缀就是 /<repo>/
+      # github.event.repository.name 自动取仓库名，无需硬编码
+      PUBLIC_PATH: /${{ github.event.repository.name }}/
+      APP_BASENAME: /${{ github.event.repository.name }}/
+    steps:
+      - name: 拉取代码
+        uses: actions/checkout@v4
+
+      - name: 安装 pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: 安装依赖
+        timeout-minutes: 5
+        run: pnpm install --frozen-lockfile
+
+      - name: 构建
+        run: pnpm run build
+
+      # SPA fallback：把 index.html 拷一份成 404.html
+      # GitHub Pages 找不到路径时会 serve 404.html
+      # 里面的 JS bundle 接管路由，实现刷新不 404
+      - name: 生成 SPA fallback
+        run: cp dist/index.html dist/404.html
+
+      # 配置 Pages（Pages 第一次启用必跑，幂等）
+      - name: 配置 Pages
+        uses: actions/configure-pages@v5
+
+      # 上传 dist 作为 Pages 专用 artifact
+      # 跟 actions/upload-artifact 不同，这个 action 自动用 Pages 需要的格式（tar）
+      - name: 上传 Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  # ===== job 2: deploy =====
+  # needs: build 表示这个 job 必须等 build 成功才跑
+  # environment 让 GitHub UI 显示部署历史和 URL，是 GitHub Pages 官方要求
+  deploy:
+    name: 部署
+    needs: build
+    runs-on: ubuntu-latest
+    # 把部署归到 github-pages environment，UI 上能看到历史
+    # url 让 environment 卡片显示可点击的部署地址
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: 部署到 Pages
+        id: deployment   # 给这步起 id，方便上面 environment.url 引用它的 outputs
+        uses: actions/deploy-pages@v4

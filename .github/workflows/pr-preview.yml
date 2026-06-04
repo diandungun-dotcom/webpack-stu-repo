@@ -1,0 +1,70 @@
+# .github/workflows/pr-preview.yml
+# PR 预览：build 后上传 dist 为 artifact，给 PR 自动评论"下载预览包"
+#
+# 注：GitHub Pages 同时只能挂一个 environment，不适合 PR 多预览
+#     更专业的方案是 Vercel / Netlify / Cloudflare Pages（它们专门提供 PR preview URL）
+#     这里用 artifact + 评论的方式，给本练习项目用足够了
+
+name: PR Preview Build
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+concurrency:
+  group: pr-preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write   # 评论 PR 需要
+
+jobs:
+  preview-build:
+    name: PR 预览构建
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      HUSKY: 0
+      PUBLIC_PATH: /
+      APP_BASENAME: /
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: 构建
+        run: pnpm run build
+
+      # 上传 dist，PR 页面可以直接下载
+      - name: 上传 PR 构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-${{ github.event.pull_request.number }}-dist
+          path: dist
+          retention-days: 7   # 7 天自动清理，省存储
+
+      # 自动给 PR 评论"构建成功 + 下载链接"
+      # ${{ github.event.pull_request.number }} = PR 号
+      # ${{ github.run_id }} = 当前 workflow run 的唯一 ID（artifact 下载页用得着）
+      - name: PR 评论构建结果
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          # header 让评论可以被"更新"而不是"重复发"
+          header: pr-preview
+          message: |
+            ## 🚀 预览构建完成
+
+            **构建结果**: ✅ 成功
+            **产物大小**: 见 [Actions 详情](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+            **下载预览包**: [pr-${{ github.event.pull_request.number }}-dist](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}#artifacts)
+
+            > 解压后用 `npx serve dist` 本地预览
+            > 7 天后 artifact 自动清理

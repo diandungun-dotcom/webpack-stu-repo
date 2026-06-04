@@ -44,6 +44,12 @@ module.exports = {
 
   output: {
     path: path.resolve(ROOT, 'dist'),
+    // publicPath：所有资源 URL 的前缀
+    //   本地 / 自有域名根目录：'/'
+    //   GitHub Pages 子路径：'/<repo-name>/'
+    //   CDN：'https://cdn.xxx.com/'
+    // 通过环境变量 PUBLIC_PATH 传入，CI 上自动设置成 repo 名
+    publicPath: process.env.PUBLIC_PATH || '/',
     // 注意：filename 在 common 里先不带 hash，dev 和 prod 各自覆盖
     // 因为 dev 模式 hash 会让 HMR 复杂化
     clean: true,
