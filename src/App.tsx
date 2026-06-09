@@ -37,6 +37,12 @@ const App: React.FC = () => {
         >
           仪表盘
         </NavLink>
+        <NavLink
+          to="/redux"
+          className={({ isActive }) => (isActive ? `${styles.link} ${styles.active}` : styles.link)}
+        >
+          Redux
+        </NavLink>
       </nav>
 
       {/*

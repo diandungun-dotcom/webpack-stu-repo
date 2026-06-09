@@ -1,8 +1,10 @@
 // 入口文件
 import React from 'react';
 import { createRoot } from 'react-dom/client';
+import { Provider } from 'react-redux';
 import { BrowserRouter } from 'react-router-dom';
 import App from './App';
+import { store } from './store';
 
 import './styles/global.scss';
 
@@ -18,8 +20,12 @@ const root = createRoot(container);
 //   读 webpack 注入的 process.env.APP_BASENAME（DefinePlugin 会替换成字面量）
 const basename = process.env.APP_BASENAME || '/';
 
+// Provider 必须包在最外层（或至少包住所有用到 store 的组件）
+// 它通过 React Context 把 store 实例向下传，useSelector / useDispatch 才能取到
 root.render(
-  <BrowserRouter basename={basename}>
-    <App />
-  </BrowserRouter>,
+  <Provider store={store}>
+    <BrowserRouter basename={basename}>
+      <App />
+    </BrowserRouter>
+  </Provider>,
 );

@@ -13,11 +13,13 @@ const About = lazy(
     ),
 );
 const Dashboard = lazy(() => import(/* webpackChunkName: "page-dashboard" */ '@/pages/Dashboard'));
+const ReduxDemo = lazy(() => import(/* webpackChunkName: "page-redux" */ '@/pages/ReduxDemo'));
 
 export const routes: RouteObject[] = [
   { path: '/', element: <Home /> },
   { path: '/about', element: <About /> },
   { path: '/dashboard', element: <Dashboard /> },
+  { path: '/redux', element: <ReduxDemo /> },
   {
     path: '*',
     element: <div style={{ padding: 24 }}>404 Not Found</div>,
